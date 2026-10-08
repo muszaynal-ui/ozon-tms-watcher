@@ -1,6 +1,15 @@
 // Чистая логика: сопоставление с маршрутами, поиск новых рейсов / изменений цены, текст уведомлений.
 export const lc = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е');
 const terms = (s) => String(s || '').split(',').map((x) => lc(x.trim())).filter(Boolean);
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Совпадение по ЦЕЛЫМ словам: «краснодар» не найдёт «Краснодарский край», «москва» — «Московская область».
+// Чтобы искать по началу слова, добавьте * в конце: «москов*».
+export function hasTerm(text, term) {
+  const prefix = term.endsWith('*');
+  const t = esc(prefix ? term.slice(0, -1) : term);
+  return new RegExp(`(?<![\\p{L}\\p{N}])${t}${prefix ? '' : '(?![\\p{L}\\p{N}])'}`, 'u').test(text);
+}
 
 // Маршрут: from / to — подстроки (через запятую = «или»), пусто = любой; minPrice — минимальная цена, ₽
 export function matchRoute(item, routes) {
@@ -8,8 +17,8 @@ export function matchRoute(item, routes) {
   for (const r of routes || []) {
     if (r.enabled === false) continue;
     const f = terms(r.from), t = terms(r.to);
-    if (f.length && !f.some((x) => s.includes(x))) continue;
-    if (t.length && !t.some((x) => d.includes(x))) continue;
+    if (f.length && !f.some((x) => hasTerm(s, x))) continue;
+    if (t.length && !t.some((x) => hasTerm(d, x))) continue;
     if (r.minPrice && item.rub < Number(r.minPrice)) continue;
     return r;
   }
