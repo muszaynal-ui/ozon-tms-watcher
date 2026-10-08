@@ -110,20 +110,30 @@ async function collectAll(cfg) {
 // ---------- Режим API: запрашиваем тот же GraphQL, что и сайт ----------
 const GQL_URL = '/p-api/graphql-decorator/gql?op=CargoesList';
 
+const MONTHS = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+// FirstArrivalTimes приходят в UTC — показываем по времени склада отправления
+function fmtDate(iso, offsetSec) {
+  const d = new Date(new Date(iso).getTime() + (offsetSec ?? 10800) * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
+
 function parseTask(t, cfg) {
   const fixed = t.__typename === 'FixedFreightTask';
   const src = fixed ? t.Route?.StartPoint?.Aggregate : t.Src;
   const dst = fixed ? t.Route?.EndPoint?.Aggregate : t.Dst;
   const money = fixed ? t.MaxPrice : t.TotalPrice;
   const rub = money ? Math.round(Number(money.Amount) / cfg.priceDivisor) : 0;
-  const when = fixed ? (t.FirstArrivalTimes || []).join(', ') : '';
+  const dates = fixed ? (t.FirstArrivalTimes || []).slice(0, 5).map((x) => fmtDate(x, src?.UTCOffsetSeconds)) : [];
   const load = fixed ? `${t.PalletsCount ?? ''} паллет` : `${t.CargoesAvailable ?? ''} грузомест`;
-  const route = `${src?.Name || ''} → ${dst?.Name || ''}`;
+  const city = (a) => a?.ClusterName || a?.Name || '';
+  const km = t.TransitDistanceMeters ? `${Math.round(t.TransitDistanceMeters / 1000)} км` : '';
   return {
     el: null,
     key: `${t.__typename}:${t.ID}`,
-    summary: `${route} · ${rub} ₽ · ${load}`,
-    text: norm(`${src?.Name || ''} ${src?.Address || ''} ${dst?.Name || ''} ${dst?.Address || ''} ${when} ${rub} ₽ ${load}`)
+    summary: `${city(src)} → ${city(dst)} · ${rub.toLocaleString('ru-RU')} ₽ · ${load}${dates[0] ? ' · ' + dates[0] : ''}`,
+    // в текст для правил входят и город (кластер), и название склада, и адрес
+    text: norm(`${city(src)} ${src?.Name || ''} ${src?.Address || ''} ${city(dst)} ${dst?.Name || ''} ${dst?.Address || ''} ${dates.join(' ')} ${km} ${rub} ₽ ${load}`)
   };
 }
 
@@ -320,7 +330,7 @@ function runApi(cfg) {
       return runDom(cfg);
     }
     const jitter = 1 + Math.random() * 0.2;
-    setTimeout(tick, Math.max(10, cfg.intervalSec) * 1000 * jitter);
+    setTimeout(tick, Math.max(15, cfg.intervalSec) * 1000 * jitter); // не чаще раза в 15 с: за проход уходит до 10 запросов
   };
   setTimeout(tick, 1500);
 }
