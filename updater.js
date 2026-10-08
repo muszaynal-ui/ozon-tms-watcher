@@ -27,10 +27,21 @@ export const isNewer = (a, b) => {
   return false;
 };
 
+// Читаем версию двумя способами (raw-CDN бывает с задержкой, API — без кэша) и берём бо́льшую
 export async function fetchLatestVersion() {
-  const r = await fetch(`${RAW}manifest.json?t=${Date.now()}`, { cache: 'no-store' });
-  if (!r.ok) throw new Error(`GitHub: ${r.status}`);
-  return (await r.json()).version;
+  const t = Date.now();
+  const sources = [
+    async () => (await (await fetch(`${RAW}manifest.json?t=${t}`, { cache: 'no-store' })).json()).version,
+    async () => (await (await fetch(`https://api.github.com/repos/${REPO}/contents/manifest.json?ref=${BRANCH}&t=${t}`,
+      { cache: 'no-store', headers: { Accept: 'application/vnd.github.raw+json' } })).json()).version
+  ];
+  const found = [];
+  const errors = [];
+  for (const s of sources) {
+    try { const v = await s(); if (/^\d+\.\d+\.\d+$/.test(v)) found.push(v); } catch (e) { errors.push(String(e.message || e)); }
+  }
+  if (!found.length) throw new Error('GitHub недоступен: ' + errors.join('; '));
+  return found.reduce((a, b) => (isNewer(b, a) ? b : a));
 }
 
 export async function hasWriteAccess(handle) {

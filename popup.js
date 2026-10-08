@@ -53,7 +53,7 @@ async function checkUpdate() {
   try {
     const latest = await fetchLatestVersion();
     const newer = isNewer(latest, current);
-    $('updInfo').textContent = newer ? `доступна ${latest}` : 'актуальная';
+    $('updInfo').textContent = newer ? `доступна ${latest} (у вас ${current})` : `актуальная (на GitHub ${latest})`;
     $('doUpd').disabled = !newer;
     chrome.action.setBadgeText({ text: newer ? '↑' : '' });
   } catch (e) { $('updInfo').textContent = 'ошибка: ' + (e.message || e); }
