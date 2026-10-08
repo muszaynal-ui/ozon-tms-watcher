@@ -1,4 +1,4 @@
-import { fetchLatestVersion, isNewer, loadHandle, saveHandle, hasWriteAccess, verifyFolder, applyUpdate, REPO } from './updater.js';
+import { fetchLatestVersion, isNewer, loadHandle, saveHandle, hasWriteAccess, verifyFolder, applyUpdate, REPO, ZIP_URL } from './updater.js';
 
 const $ = (id) => document.getElementById(id);
 const say = (t, cls = '') => { $('msg').className = cls; $('msg').textContent = t; };
@@ -43,3 +43,5 @@ $('apply').onclick = async () => {
 $('auto').onchange = () => chrome.storage.sync.set({ autoUpdate: $('auto').checked });
 $('latest').title = `github.com/${REPO}`;
 refresh();
+
+$('zip').onclick = () => chrome.tabs.create({ url: ZIP_URL });

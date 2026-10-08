@@ -84,7 +84,16 @@ export async function applyUpdate(handle) {
     if (!r.ok) throw new Error(`Не скачался ${f.path}: ${r.status}`);
     blobs.push([f.path, await r.arrayBuffer()]);
   }
-  blobs.sort((a, b) => (a[0] === 'manifest.json') - (b[0] === 'manifest.json')); // manifest — последним
-  for (const [p, data] of blobs) await writeFile(handle, p, data);
+  blobs.sort((a, b) => (a[0] === 'manifest.json') - (b[0] === 'manifest.json'));
+  // пробуем записать ВСЕ файлы и собираем ошибки, чтобы понять, какие именно не принимает браузер
+  const failed = [];
+  for (const [p, data] of blobs) {
+    try { await writeFile(handle, p, data); } catch (e) { failed.push(`${p} (${e.message.split(': ').slice(-2).join(': ')})`); }
+  }
+  if (failed.length) {
+    throw new Error(`Браузер не дал записать файлы: ${failed.join('; ')}.\nОбновите вручную: скачайте архив (кнопка ниже), распакуйте поверх папки расширения и нажмите «Перезагрузить» на chrome://extensions.`);
+  }
   chrome.runtime.reload();
 }
+
+export const ZIP_URL = `https://github.com/${REPO}/archive/refs/heads/${BRANCH}.zip`;
