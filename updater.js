@@ -57,12 +57,16 @@ export async function verifyFolder(handle) {
 }
 
 async function writeFile(root, path, data) {
-  const parts = path.split('/');
-  let dir = root;
-  for (const p of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(p, { create: true });
-  const w = await (await dir.getFileHandle(parts.at(-1), { create: true })).createWritable();
-  await w.write(data);
-  await w.close();
+  const parts = path.split('/').filter(Boolean);
+  try {
+    let dir = root;
+    for (const p of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(p, { create: true });
+    const w = await (await dir.getFileHandle(parts.at(-1), { create: true })).createWritable();
+    await w.write(data);
+    await w.close();
+  } catch (e) {
+    throw new Error(`Не удалось записать «${path}» в папку «${root.name}»: ${e.name}: ${e.message}`);
+  }
 }
 
 export async function applyUpdate(handle) {
@@ -80,7 +84,7 @@ export async function applyUpdate(handle) {
     if (!r.ok) throw new Error(`Не скачался ${f.path}: ${r.status}`);
     blobs.push([f.path, await r.arrayBuffer()]);
   }
-  blobs.sort((a) => (a[0] === 'manifest.json' ? 1 : -1)); // manifest — последним
+  blobs.sort((a, b) => (a[0] === 'manifest.json') - (b[0] === 'manifest.json')); // manifest — последним
   for (const [p, data] of blobs) await writeFile(handle, p, data);
   chrome.runtime.reload();
 }
