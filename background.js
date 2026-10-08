@@ -62,7 +62,11 @@ async function checkForUpdate() {
 chrome.runtime.onInstalled.addListener(() => { chrome.alarms.create('update-check', { periodInMinutes: 60 }); checkForUpdate(); });
 chrome.runtime.onStartup.addListener(() => { chrome.alarms.create('update-check', { periodInMinutes: 60 }); checkForUpdate(); });
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'update-check') checkForUpdate(); });
-chrome.notifications.onClicked.addListener((id) => { if (id === 'update') chrome.tabs.create({ url: chrome.runtime.getURL('update.html') }); });
+chrome.notifications.onClicked.addListener(async (id) => {
+  if (id === 'update') return chrome.tabs.create({ url: chrome.runtime.getURL('update.html') });
+  const [tab] = await chrome.tabs.query({ url: 'https://tms.ozon.ru/*' });   // клик по уведомлению — к вкладке TMS
+  if (tab) { chrome.tabs.update(tab.id, { active: true }); chrome.windows.update(tab.windowId, { focused: true }); }
+});
 chrome.runtime.onMessage.addListener((msg) => { if (msg.type === 'check-update') checkForUpdate(); });
 
 // ---------- Уведомления: Chrome + Telegram + WhatsApp (Wappi) ----------
@@ -111,6 +115,8 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
       const { linkTemplate = '' } = await chrome.storage.sync.get('linkTemplate');
       for (const part of formatMessages(msg.events, 3500, linkTemplate)) await sendAll(part);
     })();
+  } else if (msg.type === 'notify-text') {
+    (async () => { for (const part of msg.text.match(/[\s\S]{1,3500}/g) || []) await sendAll(part); })();
   } else if (msg.type === 'test-notify') {
     sendAll('✅ Тест: уведомления от «Ozon TMS — мониторинг рейсов» работают.').then(reply);
     return true;

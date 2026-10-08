@@ -13,7 +13,8 @@ const DEFAULTS = {
   notifyPriceChange: true,
   priceMinDelta: 1000,     // уведомлять об изменении цены, только если она изменилась не меньше чем на N ₽
   priceCooldownMin: 0,     // и не чаще раза в N минут для одного рейса
-  sound: true
+  sound: true,
+  bookEnabled: false       // показывать панель бронирования с ручным подтверждением (по умолчанию выключено)
 };
 
 const norm = (s) => s.replace(/\s+/g, ' ').trim();
@@ -131,6 +132,9 @@ function parseTask(t, cfg) {
   return {
     el: null,
     id: String(t.ID),
+    type: t.__typename,
+    bookable: t.BookingAllowed !== false,
+    utc: src?.UTCOffsetSeconds,
     key: `${t.__typename}:${t.ID}`,
     from: city(src), to: city(dst), srcName: src?.Name || '', dstName: dst?.Name || '',
     srcText: place(src), dstText: place(dst),
@@ -141,17 +145,21 @@ function parseTask(t, cfg) {
   };
 }
 
-async function gql(variables) {
-  const { CARGOES_QUERY } = await import(chrome.runtime.getURL('query.js'));
-  const r = await fetch(GQL_URL, {
+async function gqlOp(op, query, variables) {
+  const r = await fetch(`/p-api/graphql-decorator/gql?op=${op}`, {
     method: 'POST', credentials: 'include',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ operationName: 'CargoesList', variables, query: CARGOES_QUERY })
+    body: JSON.stringify({ operationName: op, variables, query })
   });
-  if (!r.ok) throw new Error(`CargoesList HTTP ${r.status}`);
+  if (!r.ok) throw new Error(`${op} HTTP ${r.status}`);
   const j = await r.json();
   if (j.errors?.length) throw new Error('GraphQL: ' + JSON.stringify(j.errors[0]).slice(0, 300));
   return j;
+}
+
+async function gql(variables) {
+  const { CARGOES_QUERY } = await import(chrome.runtime.getURL('query.js'));
+  return gqlOp('CargoesList', CARGOES_QUERY, variables);
 }
 
 async function collectAllApi(cfg) {
@@ -179,6 +187,103 @@ async function collectAllApi(cfg) {
   }
   if (!all.size) throw new Error('API вернул пустой список');
   return { items: [...all.values()], complete };
+}
+
+
+// ---------- Бронирование: ТОЛЬКО вручную, с подтверждением пользователя (FixedFreightTask) ----------
+const bookingLib = () => import(chrome.runtime.getURL('booking.js'));
+const say = (text) => chrome.runtime.sendMessage({ type: 'notify-text', text });
+const slotLine = (s, utc, div) => `${fmtDate(s.ArrivalTime, utc)} · ${Math.round(Number(s.Price.Amount) / div)} ₽`;
+
+async function loadSlots(taskId) {
+  const [B, Q] = await Promise.all([bookingLib(), import(chrome.runtime.getURL('query.js'))]);
+  const out = [];
+  let cursor = null;
+  for (let i = 0; i < 5; i++) {
+    const j = await gqlOp('SearchFixedFreightTaskSlots', Q.SLOTS_QUERY, B.slotsVars(taskId, cursor));
+    const d = j.data?.SearchFixedFreightTaskSlots;
+    const part = d?.LoadingSlots || [];
+    out.push(...part);
+    cursor = d?.Cursor;
+    if (!cursor || !part.length) break;
+  }
+  return out;
+}
+
+async function setBooked(taskId, ok) {
+  const { booked = {} } = await chrome.storage.local.get('booked');
+  booked[taskId] = { t: Date.now(), ok };
+  await chrome.storage.local.set({ booked });
+}
+
+// Вызывается только из обработчика клика по кнопке после подтверждения в диалоге браузера
+async function bookSlot(e, slot, cfg) {
+  const [B, Q] = await Promise.all([bookingLib(), import(chrome.runtime.getURL('query.js'))]);
+  const it = e.item;
+  const { booked = {} } = await chrome.storage.local.get('booked');
+  if (booked[it.id]?.ok) return { ok: false, text: 'Этот рейс уже бронировался' };
+  let res;
+  try { res = B.parseAccept(await gqlOp('AcceptFixedFreightTasksBatch', Q.ACCEPT_MUTATION, B.acceptVars(it.id, slot))); }
+  catch (err) { res = { ok: false, text: String(err.message || err) }; }
+  await setBooked(it.id, res.ok);
+  const head = res.ok ? '✅ Забронировано' : '⚠️ Бронь не удалась';
+  say(`${head}: ${it.from} → ${it.to}\n📅 ${slotLine(slot, it.utc, cfg.priceDivisor)}\n${res.ok ? '' : res.text + '\n'}🔗 https://tms.ozon.ru/orders`);
+  return res;
+}
+
+async function bestSlot(e, cfg) {
+  const B = await bookingLib();
+  return B.pickSlot(await loadSlots(e.item.id), e.route, e.route.slot || 'max', cfg.priceDivisor);
+}
+
+// Панель в углу страницы TMS: рейсы, по которым можно забронировать (по клику и после подтверждения)
+const offers = new Map();
+function addOffer(e, cfg) { if (!offers.has(e.item.id)) { offers.set(e.item.id, { e, cfg }); renderPanel(); } }
+
+function renderPanel() {
+  let p = document.getElementById('tms-watch-panel');
+  if (!offers.size) { p?.remove(); return; }
+  if (!p) {
+    p = document.createElement('div');
+    p.id = 'tms-watch-panel';
+    Object.assign(p.style, { position: 'fixed', right: '16px', bottom: '16px', width: '350px', maxHeight: '65vh', overflow: 'auto', zIndex: 99999,
+      background: '#fff', color: '#222', border: '2px solid #1565c0', borderRadius: '10px', boxShadow: '0 4px 20px rgba(0,0,0,.3)', font: '13px system-ui', padding: '8px' });
+    document.body.append(p);
+  }
+  p.replaceChildren();
+  const mk = (tag, text, css) => { const x = document.createElement(tag); if (text != null) x.textContent = text; if (css) Object.assign(x.style, css); return x; };
+  p.append(mk('div', 'Рейсы, доступные для бронирования', { fontWeight: '700', marginBottom: '6px' }));
+  for (const [id, { e, cfg }] of offers) {
+    const it = e.item;
+    const card = mk('div', null, { border: '1px solid #ddd', borderRadius: '8px', padding: '6px', marginBottom: '6px' });
+    card.append(mk('div', `${it.from} → ${it.to}`, { fontWeight: '600' }),
+      mk('div', `${it.rub.toLocaleString('ru-RU')} ₽ · ${it.load}${it.when ? ' · ' + it.when.split(',')[0] : ''}`, { color: '#555', fontSize: '12px' }));
+    const status = mk('div', '', { margin: '4px 0', fontSize: '12px' });
+    const btn = (label, fn) => { const b = mk('button', label, { margin: '2px 4px 2px 0', padding: '4px 8px', cursor: 'pointer' }); b.onclick = async () => { b.disabled = true; try { await fn(); } catch (err) { status.textContent = String(err.message || err); } b.disabled = false; }; return b; };
+    const confirmBook = async (slot) => {
+      if (!confirm(`Забронировать?\n${it.from} → ${it.to}\n${slotLine(slot, it.utc, cfg.priceDivisor)}`)) return;
+      const res = await bookSlot(e, slot, cfg);
+      status.textContent = res.text;
+      if (res.ok) { offers.delete(id); setTimeout(renderPanel, 2500); }
+    };
+    const slotsBox = mk('div');
+    card.append(
+      btn('Лучший слот', async () => {
+        const slot = await bestSlot(e, cfg);
+        if (!slot) { status.textContent = `Нет слотов от ${e.route.minPrice || 0} ₽`; return; }
+        await confirmBook(slot);
+      }),
+      btn('Выбрать слот…', async () => {
+        slotsBox.replaceChildren();
+        const B = await bookingLib();
+        const list = (await loadSlots(it.id)).filter((s) => B.rubOf(s.Price, cfg.priceDivisor) >= (e.route.minPrice || 0));
+        if (!list.length) { status.textContent = 'Нет подходящих слотов'; return; }
+        list.forEach((s) => slotsBox.append(btn(slotLine(s, it.utc, cfg.priceDivisor), () => confirmBook(s))));
+      }),
+      btn('✕', async () => { offers.delete(id); renderPanel(); }),
+      status, slotsBox);
+    p.append(card);
+  }
 }
 
 // ---------- Проверка: сравнить с маршрутами и состоянием, отправить события ----------
@@ -209,6 +314,17 @@ async function scan(cfg, collect = collectAll) {
     known, history: hist, baselined: true, lastCheck: Date.now(), lastTotal: items.length, lastMatched: matched, lastEvents: events.length
   });
 
+  // панель бронирования: только для маршрутов с book = 'confirm'; сама бронь — по клику пользователя
+  const { booked = {} } = await chrome.storage.local.get('booked');
+  const offered = [];
+  if (cfg.bookEnabled) {
+    events.forEach((e) => {
+      if (e.route.book !== 'confirm' || e.item.type !== 'FixedFreightTask' || !e.item.bookable || booked[e.item.id]?.ok) return;
+      e.note = '🛒 Можно забронировать: откройте вкладку TMS, панель справа внизу';
+      offered.push(e);
+    });
+  }
+
   if (events.length) {
     events.forEach((e) => e.item.el && highlight(e.item.el));
     chrome.runtime.sendMessage({
@@ -218,6 +334,7 @@ async function scan(cfg, collect = collectAll) {
     if (cfg.sound) beep();
     document.title = `(${events.length}) РЕЙСЫ — ${document.title.replace(/^\(\d+\) РЕЙСЫ — /, '')}`;
   }
+  offered.forEach((e) => addOffer(e, cfg));
 }
 
 // ---------- Диагностика (кнопка в popup) ----------

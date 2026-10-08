@@ -79,6 +79,7 @@ export function formatEvent(e, linkTpl = '') {
   if (it.when) lines.push(`🕒 Погрузка: ${it.when}`);
   if (it.km) lines.push(`🛣 ${it.km}`);
   if (it.srcName || it.dstName) lines.push(`📍 ${it.srcName || ''} → ${it.dstName || ''}`);
+  if (e.note) lines.push(e.note);
   lines.push(`🔗 ${linkFor(it, linkTpl)}`);
   return lines.join('\n');
 }
