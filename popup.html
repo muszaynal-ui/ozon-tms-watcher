@@ -23,6 +23,9 @@
 <small>Если рейсы не находятся — укажите селектор карточки/строки рейса.</small><br>
 <button id="save">Сохранить</button> <button id="reset">Сбросить «виденные»</button>
 <hr><button id="diag">Собрать диагностику (файл для разработчика)</button>
-<p><a href="#" id="upd">Обновления</a> · версия <span id="ver"></span></p>
+<hr>
+<div>Версия <b id="ver"></b> · <span id="updInfo">не проверено</span></div>
+<button id="chk">Проверить обновление</button> <button id="doUpd" disabled>Обновить</button>
+<div><a href="#" id="upd">Настройки обновления (папка, автообновление)</a></div>
 <div id="status"></div>
-<script src="popup.js"></script>
+<script type="module" src="popup.js"></script>
