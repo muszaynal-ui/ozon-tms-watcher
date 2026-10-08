@@ -25,7 +25,7 @@ export function matchRoute(item, routes) {
   return null;
 }
 
-// known: { [key]: { p: цена на момент последнего уведомления/первого появления, m: подходил ли, t: время уведомления } }
+// known: { [key]: { p: цена в последнем уведомлении (точка отсчёта шага), p0: начальная цена рейса, m: подходил ли, t: время уведомления } }
 // opts.priceMinDelta — минимальное изменение цены, ₽ (сравниваем с ценой в ПОСЛЕДНЕМ уведомлении, поэтому мелкие шаги копятся);
 // opts.priceCooldownMin — не чаще чем раз в N минут для одного рейса.
 export function diff(items, known, opts, routes) {
@@ -38,18 +38,18 @@ export function diff(items, known, opts, routes) {
   for (const it of items) {
     const route = matchRoute(it, routes);
     const prev = known[it.key];
-    if (!route) { next[it.key] = { p: it.rub, m: false, t: prev?.t || 0 }; continue; }
+    if (!route) { next[it.key] = { p: it.rub, p0: it.rub, m: false, t: prev?.t || 0 }; continue; }
     matched++;
     if (!prev || !prev.m) {
       if (opts.baselined || opts.notifyExisting) events.push({ kind: 'new', item: it, route });
-      next[it.key] = { p: it.rub, m: true, t: now };
+      next[it.key] = { p: it.rub, p0: it.rub, m: true, t: now };
     } else if (!opts.notifyPriceChange) {
-      next[it.key] = { p: it.rub, m: true, t: prev.t };
+      next[it.key] = { ...prev, p: it.rub };
     } else {
       const delta = Math.abs(it.rub - prev.p);
       if (delta > 0 && delta >= minDelta && now - (prev.t || 0) >= cooldown) {
-        events.push({ kind: 'price', item: it, route, oldRub: prev.p });
-        next[it.key] = { p: it.rub, m: true, t: now };
+        events.push({ kind: 'price', item: it, route, oldRub: prev.p, initRub: prev.p0 ?? prev.p });
+        next[it.key] = { ...prev, p: it.rub, t: now };
       } // иначе оставляем старую цену как точку отсчёта
     }
   }
@@ -66,6 +66,10 @@ export function formatEvent(e) {
   else {
     const d = it.rub - e.oldRub;
     lines.push(`💱 Цена изменилась: ${it.from} → ${it.to}`, `${rubFmt(e.oldRub)} → ${rubFmt(it.rub)} (${d > 0 ? '+' : '−'}${rubFmt(Math.abs(d))})`);
+    if (e.initRub != null && e.initRub !== e.oldRub) {
+      const t = it.rub - e.initRub;
+      lines.push(`Начальная цена: ${rubFmt(e.initRub)} (всего ${t > 0 ? '+' : t < 0 ? '−' : ''}${rubFmt(Math.abs(t))})`);
+    }
   }
   if (e.kind === 'new') lines.push(`💰 ${rubFmt(it.rub)}`);
   if (it.load) lines.push(`📦 ${it.load}`);

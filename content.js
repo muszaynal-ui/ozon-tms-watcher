@@ -31,8 +31,11 @@ function maxPrice(text) {
 }
 
 function beep() {
+  // браузер разрешает звук только после действия пользователя на странице — иначе пропускаем без ошибки
+  if (!navigator.userActivation?.hasBeenActive) return;
   try {
     const ctx = new AudioContext();
+    if (ctx.state === 'suspended') { ctx.close(); return; }
     [0, 0.25, 0.5].forEach((d) => {
       const o = ctx.createOscillator();
       o.frequency.value = 880;
