@@ -64,3 +64,4 @@ $('doUpd').onclick = async () => {
 checkUpdate();
 
 $('ver').textContent = chrome.runtime.getManifest().version;
+$('upd').onclick = (e) => { e.preventDefault(); openUpdate(); };
