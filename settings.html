@@ -32,6 +32,10 @@
 
 <fieldset><legend>Когда уведомлять</legend>
   <p><input type="checkbox" id="notifyPriceChange"> <label class="inline" for="notifyPriceChange">При изменении цены подходящего рейса</label></p>
+  <p style="margin-left:24px">Только если цена изменилась не меньше чем на
+    <input type="number" id="priceMinDelta" min="0" step="100" style="width:100px"> ₽,
+    и не чаще раза в <input type="number" id="priceCooldownMin" min="0" step="1" style="width:70px"> мин. для одного рейса
+    <small>Сравнение идёт с ценой из последнего уведомления, поэтому мелкие шаги накапливаются: +300 ₽, затем ещё +800 ₽ → придёт одно сообщение. 0 — уведомлять о любом изменении.</small></p>
   <p><input type="checkbox" id="notifyExisting"> <label class="inline" for="notifyExisting">Сообщить и о рейсах, которые уже есть при первом запуске</label></p>
   <p><input type="checkbox" id="sound"> <label class="inline" for="sound">Звук на странице</label></p>
 </fieldset>

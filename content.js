@@ -11,6 +11,8 @@ const DEFAULTS = {
   routes: [],          // [{ from, to, minPrice, enabled }]
   notifyExisting: false,
   notifyPriceChange: true,
+  priceMinDelta: 1000,     // уведомлять об изменении цены, только если она изменилась не меньше чем на N ₽
+  priceCooldownMin: 0,     // и не чаще раза в N минут для одного рейса
   sound: true
 };
 
@@ -181,7 +183,8 @@ async function scan(cfg, collect = collectAll) {
   const { items, complete } = await collect(cfg);
   const st = await chrome.storage.local.get(['known', 'baselined']);
   const { events, next, matched } = L.diff(items, st.known || {},
-    { baselined: !!st.baselined, notifyExisting: cfg.notifyExisting, notifyPriceChange: cfg.notifyPriceChange }, cfg.routes);
+    { baselined: !!st.baselined, notifyExisting: cfg.notifyExisting, notifyPriceChange: cfg.notifyPriceChange,
+      priceMinDelta: cfg.priceMinDelta, priceCooldownMin: cfg.priceCooldownMin }, cfg.routes);
 
   // при полном проходе забываем пропавшие рейсы, при неполном — только ограничиваем размер
   const known = complete ? Object.fromEntries(items.map((i) => [i.key, next[i.key]])) : L.cap(next, 4000);

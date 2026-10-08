@@ -25,23 +25,33 @@ export function matchRoute(item, routes) {
   return null;
 }
 
-// known: { [key]: { p: цена, m: подходил ли маршрутам } }
+// known: { [key]: { p: цена на момент последнего уведомления/первого появления, m: подходил ли, t: время уведомления } }
+// opts.priceMinDelta — минимальное изменение цены, ₽ (сравниваем с ценой в ПОСЛЕДНЕМ уведомлении, поэтому мелкие шаги копятся);
+// opts.priceCooldownMin — не чаще чем раз в N минут для одного рейса.
 export function diff(items, known, opts, routes) {
   const next = { ...known };
   const events = [];
+  const now = opts.now ?? Date.now();
+  const minDelta = Number(opts.priceMinDelta) || 0;
+  const cooldown = (Number(opts.priceCooldownMin) || 0) * 60000;
   let matched = 0;
   for (const it of items) {
     const route = matchRoute(it, routes);
     const prev = known[it.key];
-    if (route) {
-      matched++;
-      if (!prev || !prev.m) {
-        if (opts.baselined || opts.notifyExisting) events.push({ kind: 'new', item: it, route });
-      } else if (prev.p !== it.rub && opts.notifyPriceChange) {
+    if (!route) { next[it.key] = { p: it.rub, m: false, t: prev?.t || 0 }; continue; }
+    matched++;
+    if (!prev || !prev.m) {
+      if (opts.baselined || opts.notifyExisting) events.push({ kind: 'new', item: it, route });
+      next[it.key] = { p: it.rub, m: true, t: now };
+    } else if (!opts.notifyPriceChange) {
+      next[it.key] = { p: it.rub, m: true, t: prev.t };
+    } else {
+      const delta = Math.abs(it.rub - prev.p);
+      if (delta > 0 && delta >= minDelta && now - (prev.t || 0) >= cooldown) {
         events.push({ kind: 'price', item: it, route, oldRub: prev.p });
-      }
+        next[it.key] = { p: it.rub, m: true, t: now };
+      } // иначе оставляем старую цену как точку отсчёта
     }
-    next[it.key] = { p: it.rub, m: !!route };
   }
   return { events, next, matched };
 }
