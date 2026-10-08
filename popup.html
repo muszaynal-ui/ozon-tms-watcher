@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body{font:13px system-ui;width:340px;padding:12px;margin:0}
+  label{display:block;margin:8px 0 2px;font-weight:600}
+  input[type=text],input[type=number],textarea{width:100%;box-sizing:border-box;padding:5px}
+  textarea{height:70px}
+  small{color:#666}
+  button{margin-top:10px;padding:6px 12px}
+  #status{margin-top:8px;color:#2e7d32}
+</style>
+<label><input type="checkbox" id="enabled"> Мониторинг включён</label>
+<label>Период обновления, сек</label><input type="number" id="intervalSec" min="5">
+<label>Ожидание отрисовки списка, сек</label><input type="number" id="loadWaitSec" min="1">
+<label>Правила (по строке; термы через запятую = И, строки = ИЛИ)</label>
+<textarea id="rules" placeholder="москва, тент&#10;казань"></textarea>
+<label>Исключить слова (через запятую)</label><input type="text" id="exclude">
+<label>Мин. цена, ₽</label><input type="number" id="minPrice" min="0">
+<label>CSS-селектор строк рейса</label><input type="text" id="rowSelector">
+<label>Кнопка «след. страница» (селектор, необязательно)</label><input type="text" id="nextSelector">
+<label>Макс. страниц / подгрузок</label><input type="number" id="maxPages" min="1">
+<label>Пауза после прокрутки/перехода, сек</label><input type="number" id="pageWaitSec" min="0.5" step="0.5">
+<small>Если рейсы не находятся — укажите селектор карточки/строки рейса.</small><br>
+<button id="save">Сохранить</button> <button id="reset">Сбросить «виденные»</button>
+<hr><button id="diag">Собрать диагностику (файл для разработчика)</button>
+<p><a href="#" id="upd">Обновления</a> · версия <span id="ver"></span></p>
+<div id="status"></div>
+<script src="popup.js"></script>

@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Обновления — Ozon TMS watcher</title>
+<style>
+  body{font:14px system-ui;max-width:560px;margin:24px auto;padding:0 16px}
+  button{padding:7px 14px;margin:4px 6px 4px 0}
+  .box{padding:10px 12px;border:1px solid #ccc;border-radius:8px;margin:12px 0}
+  #msg{margin-top:12px;white-space:pre-wrap}
+  .err{color:#c62828}.ok{color:#2e7d32}
+</style>
+<h2>Обновления расширения</h2>
+<div class="box">
+  Установлена версия: <b id="cur"></b><br>
+  Последняя на GitHub: <b id="latest">…</b><br>
+  Папка расширения: <b id="folder">не выбрана</b>
+</div>
+<p>Чтобы расширение обновлялось само, один раз выберите папку, из которой оно загружено (там лежит <code>manifest.json</code>).
+Расширение будет перезаписывать в ней файлы из GitHub и перезагружаться. Если после перезапуска Chrome доступ сбросится — нажмите «Подтвердить доступ».</p>
+<button id="pick">Выбрать папку расширения</button>
+<button id="grant">Подтвердить доступ</button>
+<button id="check">Проверить сейчас</button>
+<button id="apply">Обновить сейчас</button>
+<p><label><input type="checkbox" id="auto"> Обновлять автоматически (раз в час)</label></p>
+<div id="msg"></div>
+<script type="module" src="update.js"></script>
