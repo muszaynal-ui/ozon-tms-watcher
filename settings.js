@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const say = (t, cls = '') => { $('msg').className = cls; $('msg').textContent = t; };
 
-const SYNC = { intervalSec: 30, mode: 'api', maxPages: 10, notifyExisting: false, notifyPriceChange: true, priceMinDelta: 1000, priceCooldownMin: 0, sound: true, routes: [] };
+const SYNC = { intervalSec: 30, mode: 'api', maxPages: 10, notifyExisting: false, notifyPriceChange: true, priceMinDelta: 1000, priceCooldownMin: 0, sound: true, linkTemplate: '', routes: [] };
 const SECRET = { tgEnabled: false, tgToken: '', tgChats: '', waEnabled: false, waProfile: '', waToken: '', waTo: '' };
 
 function addRow(r = { from: '', to: '', minPrice: 0, enabled: true }) {
@@ -22,7 +22,7 @@ function addRow(r = { from: '', to: '', minPrice: 0, enabled: true }) {
 async function load() {
   const s = { ...SYNC, ...(await chrome.storage.sync.get(SYNC)) };
   const n = { ...SECRET, ...((await chrome.storage.local.get('notify')).notify || {}) };
-  ['intervalSec', 'mode', 'maxPages', 'priceMinDelta', 'priceCooldownMin'].forEach((k) => ($(k).value = s[k]));
+  ['intervalSec', 'mode', 'maxPages', 'priceMinDelta', 'priceCooldownMin', 'linkTemplate'].forEach((k) => ($(k).value = s[k]));
   ['notifyExisting', 'notifyPriceChange', 'sound'].forEach((k) => ($(k).checked = s[k]));
   Object.keys(SECRET).forEach((k) => (typeof SECRET[k] === 'boolean' ? ($(k).checked = n[k]) : ($(k).value = n[k])));
   (s.routes.length ? s.routes : [undefined]).forEach((r) => addRow(r));
@@ -43,6 +43,7 @@ async function save() {
     maxPages: Math.min(50, Math.max(1, Number($('maxPages').value) || 10)),
     priceMinDelta: Math.max(0, Number($('priceMinDelta').value) || 0),
     priceCooldownMin: Math.max(0, Number($('priceCooldownMin').value) || 0),
+    linkTemplate: $('linkTemplate').value.trim(),
     notifyExisting: $('notifyExisting').checked,
     notifyPriceChange: $('notifyPriceChange').checked,
     sound: $('sound').checked

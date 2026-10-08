@@ -130,6 +130,7 @@ function parseTask(t, cfg) {
   const place = (a) => norm(`${a?.ClusterName || ''} ${a?.Name || ''} ${a?.Address || ''}`);
   return {
     el: null,
+    id: String(t.ID),
     key: `${t.__typename}:${t.ID}`,
     from: city(src), to: city(dst), srcName: src?.Name || '', dstName: dst?.Name || '',
     srcText: place(src), dstText: place(dst),
@@ -190,9 +191,22 @@ async function scan(cfg, collect = collectAll) {
       priceMinDelta: cfg.priceMinDelta, priceCooldownMin: cfg.priceCooldownMin }, cfg.routes);
 
   // при полном проходе забываем пропавшие рейсы, при неполном — только ограничиваем размер
+  // история цен подходящих рейсов (точки добавляются только при изменении цены)
+  const now = Date.now();
+  const hist = (await chrome.storage.local.get('history')).history || {};
+  for (const it of items) {
+    if (!L.matchRoute(it, cfg.routes)) continue;
+    const h = (hist[it.key] ||= { pts: [] });
+    Object.assign(h, { from: it.from, to: it.to, srcName: it.srcName, dstName: it.dstName, when: it.when, load: it.load, id: it.id, seen: now });
+    const last = h.pts.at(-1);
+    if (!last || last[1] !== it.rub) { h.pts.push([now, it.rub]); if (h.pts.length > 300) h.pts.shift(); }
+  }
+  Object.keys(hist).forEach((k) => { if (hist[k].seen < now - 3 * 864e5) delete hist[k]; });
+  Object.keys(hist).sort((a, b) => hist[a].seen - hist[b].seen).slice(0, Math.max(0, Object.keys(hist).length - 300)).forEach((k) => delete hist[k]);
+
   const known = complete ? Object.fromEntries(items.map((i) => [i.key, next[i.key]])) : L.cap(next, 4000);
   await chrome.storage.local.set({
-    known, baselined: true, lastCheck: Date.now(), lastTotal: items.length, lastMatched: matched, lastEvents: events.length
+    known, history: hist, baselined: true, lastCheck: Date.now(), lastTotal: items.length, lastMatched: matched, lastEvents: events.length
   });
 
   if (events.length) {
@@ -309,6 +323,31 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   diagnose().then(reply).catch((e) => reply({ error: String(e) }));
   return true;
 });
+
+
+// ---------- Запись действий (для разработчика): клики, переходы, окна ----------
+let recording = false;
+chrome.storage.local.get('recording').then((r) => { recording = !!r.recording; });
+chrome.storage.onChanged.addListener((ch) => { if (ch.recording) recording = !!ch.recording.newValue; });
+async function uiPush(ev) {
+  const { uiLog = [] } = await chrome.storage.local.get('uiLog');
+  uiLog.push({ t: Date.now(), href: location.href, ...ev });
+  await chrome.storage.local.set({ uiLog: uiLog.slice(-300) });
+}
+document.addEventListener('click', (e) => {
+  if (!recording) return;
+  const el = e.target.closest('button, a, [role=button], tr, [data-testid]') || e.target;
+  uiPush({ type: 'click', testid: el.getAttribute && el.getAttribute('data-testid'), text: norm(el.innerText || '').slice(0, 120), path: cssPath(el) });
+  setTimeout(() => {   // что появилось после клика: диалоги и правая панель
+    const panels = [...document.querySelectorAll('[role="dialog"], [class*="modal"], [class*="side-page-wrapper__panel"]')]
+      .map((p) => ({ path: cssPath(p), text: norm(p.innerText || '').slice(0, 1500),
+        buttons: [...p.querySelectorAll('button')].map((b) => norm(b.innerText)).filter(Boolean) }))
+      .filter((p) => p.text);
+    uiPush({ type: 'after-click', panels });
+  }, 800);
+}, true);
+let lastHref = location.href;
+setInterval(() => { if (recording && location.href !== lastHref) uiPush({ type: 'url' }); lastHref = location.href; }, 300);
 
 function runDom(cfg) {
   setTimeout(async () => {

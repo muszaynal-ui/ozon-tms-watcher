@@ -59,7 +59,10 @@ export function diff(items, known, opts, routes) {
 export const cap = (obj, n) => Object.fromEntries(Object.entries(obj).slice(-n));
 export const rubFmt = (n) => Math.round(n).toLocaleString('ru-RU').replace(/ /g, ' ') + ' ₽';
 
-export function formatEvent(e) {
+export const LIST_URL = 'https://tms.ozon.ru/cargoes';
+export const linkFor = (it, tpl) => (tpl && it.id ? tpl.replace('{id}', it.id) : LIST_URL);
+
+export function formatEvent(e, linkTpl = '') {
   const it = e.item;
   const lines = [];
   if (e.kind === 'new') lines.push(`🆕 Новый рейс: ${it.from} → ${it.to}`);
@@ -76,12 +79,13 @@ export function formatEvent(e) {
   if (it.when) lines.push(`🕒 Погрузка: ${it.when}`);
   if (it.km) lines.push(`🛣 ${it.km}`);
   if (it.srcName || it.dstName) lines.push(`📍 ${it.srcName || ''} → ${it.dstName || ''}`);
+  lines.push(`🔗 ${linkFor(it, linkTpl)}`);
   return lines.join('\n');
 }
 
 // Одно сообщение на пачку событий, порциями ≤ limit символов
-export function formatMessages(events, limit = 3500) {
-  const parts = events.map(formatEvent);
+export function formatMessages(events, limit = 3500, linkTpl = '') {
+  const parts = events.map((e) => formatEvent(e, linkTpl));
   const out = [];
   let cur = '';
   for (const p of parts) {

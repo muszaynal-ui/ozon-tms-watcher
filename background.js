@@ -1,20 +1,30 @@
 import { fetchLatestVersion, isNewer, loadHandle, hasWriteAccess, applyUpdate } from './updater.js';
 import { formatMessages } from './logic.js';
 
-// Диагностика: запоминаем тело GraphQL-запроса CargoesList (запрос + переменные фильтров)
+// Диагностика: тело запроса CargoesList (фильтры) и, в режиме записи, действий пользователя (бронирование и т.п.)
+const NOISE = /op=(Me|ExistsUnconfirmedOrders\w*|LogisticianBanners|ClustersRequiringAggregate|Claims|CargoesInfo|FavoriteDirections)\b|tracker|browser-metrics|sentry|\/vars\//;
 chrome.webRequest.onBeforeRequest.addListener(
   (d) => {
     try {
       const raw = d.requestBody && d.requestBody.raw && d.requestBody.raw[0] && d.requestBody.raw[0].bytes;
-      if (!raw) return;
-      const body = new TextDecoder().decode(raw).slice(0, 8000);
-      chrome.storage.local.get('gqlCapture').then(({ gqlCapture = [] }) => {
-        gqlCapture.push({ t: Date.now(), url: d.url, method: d.method, body });
-        chrome.storage.local.set({ gqlCapture: gqlCapture.slice(-6) });
+      const body = raw ? new TextDecoder().decode(raw) : '';
+      if (/op=CargoesList/.test(d.url) && raw) {
+        chrome.storage.local.get('gqlCapture').then(({ gqlCapture = [] }) => {
+          gqlCapture.push({ t: Date.now(), url: d.url, method: d.method, body: body.slice(0, 8000) });
+          chrome.storage.local.set({ gqlCapture: gqlCapture.slice(-6) });
+        });
+        return;
+      }
+      chrome.storage.local.get(['recording', 'recLog']).then(({ recording, recLog = [] }) => {
+        if (!recording || NOISE.test(d.url) || (d.method === 'GET' && !/gql/.test(d.url))) return;
+        let op = '';
+        try { op = JSON.parse(body).operationName || ''; } catch (e) {}
+        recLog.push({ t: Date.now(), method: d.method, url: d.url, op, body: body.slice(0, 6000) });
+        chrome.storage.local.set({ recLog: recLog.slice(-150) });
       });
     } catch (e) {}
   },
-  { urls: ['https://tms.ozon.ru/*gql?op=CargoesList*', 'https://tms.ozon.ru/*gql?op=FavoriteDirections*'] },
+  { urls: ['https://tms.ozon.ru/*'], types: ['xmlhttprequest'] },
   ['requestBody']
 );
 
@@ -97,7 +107,10 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
       title: `Рейсы: ${msg.events.length}`,
       message: msg.events.slice(0, 3).map((e) => `${e.kind === 'new' ? 'Новый' : 'Цена'}: ${e.item.from} → ${e.item.to} · ${e.item.rub} ₽`).join('\n') || first.from
     });
-    (async () => { for (const part of formatMessages(msg.events)) await sendAll(part); })();
+    (async () => {
+      const { linkTemplate = '' } = await chrome.storage.sync.get('linkTemplate');
+      for (const part of formatMessages(msg.events, 3500, linkTemplate)) await sendAll(part);
+    })();
   } else if (msg.type === 'test-notify') {
     sendAll('✅ Тест: уведомления от «Ozon TMS — мониторинг рейсов» работают.').then(reply);
     return true;

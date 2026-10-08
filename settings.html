@@ -40,6 +40,11 @@
   <p><input type="checkbox" id="sound"> <label class="inline" for="sound">Звук на странице</label></p>
 </fieldset>
 
+<fieldset><legend>Ссылка на рейс в сообщении</legend>
+  <label>Шаблон ссылки <small>Подставляется ID рейса: <code>{id}</code>. Пока адрес страницы рейса неизвестен — оставьте пустым: тогда в сообщении будет ссылка на список рейсов.</small></label>
+  <input type="text" id="linkTemplate" class="wide" placeholder="https://tms.ozon.ru/cargoes/{id}">
+</fieldset>
+
 <fieldset><legend>Проверка</legend>
   <label>Режим</label>
   <select id="mode">

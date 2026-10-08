@@ -12,10 +12,14 @@
 <div class="row"><label><input type="checkbox" id="enabled"> <b>Мониторинг включён</b></label></div>
 <div id="state">…</div>
 <button id="settings">Настройки (маршруты, Telegram, WhatsApp)</button>
+<button id="hist">История цен</button>
 <button id="reset">Сбросить «виденные»</button>
 <hr>
 <div>Версия <b id="ver"></b> · <span id="updInfo">не проверено</span></div>
 <button id="chk">Проверить обновление</button> <button id="doUpd" disabled>Обновить</button>
 <div><a href="#" id="upd">Настройки обновления</a> · <a href="#" id="diag">Диагностика</a></div>
+<hr>
+<button id="rec">● Записать бронирование (для разработчика)</button>
+<div><small>Нужна, чтобы я научил расширение бронировать и ссылаться на рейс: включите запись, откройте рейс и пройдите бронирование.</small></div>
 <div id="status"></div>
 <script type="module" src="popup.js"></script>

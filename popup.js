@@ -65,3 +65,29 @@ checkUpdate();
 
 $('ver').textContent = chrome.runtime.getManifest().version;
 $('upd').onclick = (e) => { e.preventDefault(); openUpdate(); };
+
+$('hist').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('history.html') });
+
+// Режим записи: пишем запросы сайта и клики, пока пользователь проходит бронирование
+async function recLabel() {
+  const { recording } = await chrome.storage.local.get('recording');
+  $('rec').textContent = recording ? '■ Остановить запись и сохранить файл' : '● Записать бронирование (для разработчика)';
+}
+$('rec').onclick = async () => {
+  const { recording } = await chrome.storage.local.get('recording');
+  if (!recording) {
+    await chrome.storage.local.set({ recording: true, recLog: [], uiLog: [] });
+    status('Запись идёт. Откройте рейс на сайте и пройдите бронирование, затем нажмите «Остановить».');
+  } else {
+    await chrome.storage.local.set({ recording: false });
+    const data = await chrome.storage.local.get(['recLog', 'uiLog']);
+    const blob = new Blob([JSON.stringify({ collectedAt: new Date().toISOString(), version: chrome.runtime.getManifest().version, ...data }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'tms-recording.json';
+    a.click();
+    status('Файл tms-recording.json сохранён в Загрузки');
+  }
+  recLabel();
+};
+recLabel();
