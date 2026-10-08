@@ -2,7 +2,7 @@ import { fetchLatestVersion, isNewer, loadHandle, hasWriteAccess, applyUpdate } 
 const DEFAULTS = {
   enabled: false, intervalSec: 30, loadWaitSec: 4,
   rowSelector: 'tr[data-testid^="table-row__cargoes_"]', rules: '', exclude: '', minPrice: 0,
-  nextSelector: '', maxPages: 10, pageWaitSec: 2
+  nextSelector: '', maxPages: 10, pageWaitSec: 2, mode: 'api'
 };
 const ids = Object.keys(DEFAULTS);
 const $ = (id) => document.getElementById(id);

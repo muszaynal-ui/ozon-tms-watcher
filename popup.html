@@ -10,6 +10,7 @@
   #status{margin-top:8px;color:#2e7d32}
 </style>
 <label><input type="checkbox" id="enabled"> Мониторинг включён</label>
+<label>Режим</label><select id="mode"><option value="api">API — прямой запрос списка (без перезагрузки)</option><option value="dom">Таблица — перезагрузка и прокрутка</option></select>
 <label>Период обновления, сек</label><input type="number" id="intervalSec" min="5">
 <label>Ожидание отрисовки списка, сек</label><input type="number" id="loadWaitSec" min="1">
 <label>Правила (по строке; термы через запятую = И, строки = ИЛИ)</label>

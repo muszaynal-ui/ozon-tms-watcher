@@ -8,7 +8,9 @@ const DEFAULTS = {
   minPrice: 0,         // минимальная цена, ₽ (0 — не проверять)
   nextSelector: '',    // CSS-селектор кнопки «следующая страница» (если есть пагинация)
   maxPages: 10,        // максимум страниц / подгрузок за один проход
-  pageWaitSec: 2       // пауза после прокрутки / перехода
+  pageWaitSec: 2,      // пауза после прокрутки / перехода
+  mode: 'api',         // 'api' — прямой запрос списка (без перезагрузки), 'dom' — чтение таблицы
+  priceDivisor: 100    // Amount в API хранится в копейках
 };
 
 const norm = (s) => s.replace(/\s+/g, ' ').trim();
@@ -104,17 +106,78 @@ async function collectAll(cfg) {
   return [...all.values()];
 }
 
-async function scan(cfg) {
+
+// ---------- Режим API: запрашиваем тот же GraphQL, что и сайт ----------
+const GQL_URL = '/p-api/graphql-decorator/gql?op=CargoesList';
+
+function parseTask(t, cfg) {
+  const fixed = t.__typename === 'FixedFreightTask';
+  const src = fixed ? t.Route?.StartPoint?.Aggregate : t.Src;
+  const dst = fixed ? t.Route?.EndPoint?.Aggregate : t.Dst;
+  const money = fixed ? t.MaxPrice : t.TotalPrice;
+  const rub = money ? Math.round(Number(money.Amount) / cfg.priceDivisor) : 0;
+  const when = fixed ? (t.FirstArrivalTimes || []).join(', ') : '';
+  const load = fixed ? `${t.PalletsCount ?? ''} паллет` : `${t.CargoesAvailable ?? ''} грузомест`;
+  const route = `${src?.Name || ''} → ${dst?.Name || ''}`;
+  return {
+    el: null,
+    key: `${t.__typename}:${t.ID}`,
+    summary: `${route} · ${rub} ₽ · ${load}`,
+    text: norm(`${src?.Name || ''} ${src?.Address || ''} ${dst?.Name || ''} ${dst?.Address || ''} ${when} ${rub} ₽ ${load}`)
+  };
+}
+
+async function gql(variables) {
+  const { CARGOES_QUERY } = await import(chrome.runtime.getURL('query.js'));
+  const r = await fetch(GQL_URL, {
+    method: 'POST', credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ operationName: 'CargoesList', variables, query: CARGOES_QUERY })
+  });
+  if (!r.ok) throw new Error(`CargoesList HTTP ${r.status}`);
+  const j = await r.json();
+  if (j.errors?.length) throw new Error('GraphQL: ' + JSON.stringify(j.errors[0]).slice(0, 300));
+  return j;
+}
+
+async function collectAllApi(cfg) {
+  // фильтры страницы (тип, высокий тариф) берём из последнего запроса сайта, если он был
+  const { gqlCapture = [] } = await chrome.storage.local.get('gqlCapture');
+  let base = { HighTariffOnly: false, Types: [] };
+  try {
+    const last = JSON.parse(gqlCapture.filter((c) => c.url.includes('CargoesList')).at(-1).body);
+    base = { ...last.variables.input }; delete base.Cursor;
+  } catch (e) {}
+
+  const all = new Map();
+  let token = '';
+  for (let page = 0; page < cfg.maxPages; page++) {
+    const j = await gql({ input: { ...base, Cursor: { Token: token, Limit: 40 } } });
+    const data = j.data?.SearchLogisticTasks;
+    if (page === 0) await chrome.storage.local.set({ apiSample: JSON.stringify(j).slice(0, 4000) });
+    const tasks = data?.Tasks || [];
+    tasks.forEach((t) => { const p = parseTask(t, cfg); if (!all.has(p.key)) all.set(p.key, p); });
+    const c = data?.Cursor;
+    const next = typeof c === 'string' ? c : c?.Token || '';
+    if (!tasks.length || !next || next === token) break;
+    token = next;
+    await sleep(400); // не частим
+  }
+  if (!all.size) throw new Error('API вернул пустой список');
+  return [...all.values()];
+}
+
+async function scan(cfg, collect = collectAll) {
   const { seen = [], baselined = false } = await chrome.storage.local.get(['seen', 'baselined']);
   const seenSet = new Set(seen);
   const fresh = [];
 
-  (await collectAll(cfg)).forEach(({ el, text, key }) => {
+  (await collect(cfg)).forEach(({ el, text, key, summary }) => {
     if (!matches(text, cfg)) return;
     if (!seenSet.has(key)) {
       seenSet.add(key);
-      fresh.push(text);
-      highlight(el);
+      fresh.push(summary || text);
+      if (el) highlight(el);
     }
   });
 
@@ -226,6 +289,8 @@ async function diagnose() {
     .map((r) => ({ type: r.initiatorType, url: r.name.slice(0, 300), ms: Math.round(r.duration) }));
   out.scrollTest.rowCountPerStep = out.scrollTest.rowCountPerStep.concat([document.querySelectorAll(cfg.rowSelector).length]);
   out.currentSettings = cfg;
+  out.apiSample = (await chrome.storage.local.get('apiSample')).apiSample || null;
+  out.apiState = await chrome.storage.local.get(['apiError', 'modeUsed']);
   out.gqlCapture = (await chrome.storage.local.get('gqlCapture')).gqlCapture || [];
   return out;
 }
@@ -236,12 +301,32 @@ chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   return true;
 });
 
-(async function main() {
-  const cfg = { ...DEFAULTS, ...(await chrome.storage.sync.get(DEFAULTS)) };
-  if (!cfg.enabled) return;
+function runDom(cfg) {
   setTimeout(async () => {
     await scan(cfg);
     const jitter = 1 + Math.random() * 0.2; // небольшой разброс, чтобы не бить строго по таймеру
     setTimeout(() => location.reload(), Math.max(5, cfg.intervalSec) * 1000 * jitter);
   }, cfg.loadWaitSec * 1000);
+}
+
+function runApi(cfg) {
+  const tick = async () => {
+    try {
+      await scan(cfg, collectAllApi);
+      await chrome.storage.local.set({ apiError: '', modeUsed: 'api' });
+    } catch (e) {
+      // API не сработал — переключаемся на чтение таблицы
+      await chrome.storage.local.set({ apiError: String(e.message || e), modeUsed: 'dom' });
+      return runDom(cfg);
+    }
+    const jitter = 1 + Math.random() * 0.2;
+    setTimeout(tick, Math.max(10, cfg.intervalSec) * 1000 * jitter);
+  };
+  setTimeout(tick, 1500);
+}
+
+(async function main() {
+  const cfg = { ...DEFAULTS, ...(await chrome.storage.sync.get(DEFAULTS)) };
+  if (!cfg.enabled) return;
+  cfg.mode === 'api' ? runApi(cfg) : runDom(cfg);
 })();
