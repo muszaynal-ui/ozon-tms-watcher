@@ -1,21 +1,22 @@
 const DEFAULTS = {
   enabled: false,
-  intervalSec: 30,     // период обновления страницы
-  loadWaitSec: 4,      // сколько ждать отрисовки списка после загрузки
+  intervalSec: 30,     // период проверки (в режиме API не чаще раза в 15 с)
+  loadWaitSec: 4,      // режим «таблица»: ожидание отрисовки списка после загрузки
   rowSelector: 'tr[data-testid^="table-row__cargoes_"]',
-  rules: '',           // по строке на правило; внутри строки термы через запятую (И), строки — ИЛИ
-  exclude: '',         // стоп-слова через запятую
-  minPrice: 0,         // минимальная цена, ₽ (0 — не проверять)
-  nextSelector: '',    // CSS-селектор кнопки «следующая страница» (если есть пагинация)
-  maxPages: 10,        // максимум страниц / подгрузок за один проход
-  pageWaitSec: 2,      // пауза после прокрутки / перехода
-  mode: 'api',         // 'api' — прямой запрос списка (без перезагрузки), 'dom' — чтение таблицы
-  priceDivisor: 100    // Amount в API хранится в копейках
+  nextSelector: '',    // кнопка «следующая страница», если появится пагинация
+  maxPages: 10,        // максимум страниц / подгрузок за один проход (по 40 рейсов)
+  pageWaitSec: 2,
+  mode: 'api',         // 'api' — прямой запрос списка, 'dom' — чтение таблицы с перезагрузкой
+  priceDivisor: 100,   // Amount в API хранится в копейках
+  routes: [],          // [{ from, to, minPrice, enabled }]
+  notifyExisting: false,
+  notifyPriceChange: true,
+  sound: true
 };
 
 const norm = (s) => s.replace(/\s+/g, ' ').trim();
-const lc = (s) => s.toLowerCase();
-const list = (s) => s.split(',').map((x) => lc(x.trim())).filter(Boolean);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const logic = () => import(chrome.runtime.getURL('logic.js'));
 
 function maxPrice(text) {
   const re = /(\d[\d\s ]*(?:[.,]\d+)?)\s*(?:₽|руб|р\.)/gi;
@@ -25,15 +26,6 @@ function maxPrice(text) {
     if (n > best) best = n;
   }
   return best;
-}
-
-function matches(text, cfg) {
-  const t = lc(text);
-  const rules = cfg.rules.split('\n').map(list).filter((r) => r.length);
-  if (rules.length && !rules.some((terms) => terms.every((w) => t.includes(w)))) return false;
-  if (list(cfg.exclude).some((w) => t.includes(w))) return false;
-  if (cfg.minPrice && maxPrice(text) < cfg.minPrice) return false;
-  return true;
 }
 
 function beep() {
@@ -54,8 +46,6 @@ function highlight(el) {
   el.style.background = '#fff3cd';
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 function scrollables(rows) {
   const out = [document.scrollingElement];
   for (let el = rows[rows.length - 1]?.parentElement; el; el = el.parentElement) {
@@ -64,17 +54,27 @@ function scrollables(rows) {
   return out;
 }
 
-// Проходит все страницы / подгрузки и возвращает [{el, text, key}] без дублей
+// ---------- Режим «таблица»: перезагрузка страницы, прокрутка, чтение строк ----------
 async function collectAll(cfg) {
   const all = new Map();
   const grab = () => {
     document.querySelectorAll(cfg.rowSelector).forEach((el) => {
-      const text = norm(el.innerText || '');
-      if (text.length < 10) return;
       const cells = [...el.querySelectorAll('td')];
-      // data-testid у строк — это просто индекс, поэтому ключ собираем из откуда/куда/дата/цена
-      const key = [1, 3, 5, 8].map((i) => norm(cells[i]?.innerText || '')).join('|') || text;
-      if (!all.has(key)) all.set(key, { el, text, key });
+      const text = norm(el.innerText || '');
+      if (text.length < 10 || cells.length < 9) return;
+      const cell = (i) => (cells[i]?.innerText || '').trim();
+      const lines = (i) => cell(i).split('\n').map((x) => x.trim()).filter(Boolean);
+      const [srcCity, srcName = ''] = [lines(1)[0] || '', (lines(1)[1] || '').split(';')[0]];
+      const [dstCity, dstName = ''] = [lines(3)[0] || '', (lines(3)[1] || '').split(';')[0]];
+      // цена в таблице меняется, поэтому в ключ она не входит — только откуда/куда/даты
+      const key = [1, 3, 5].map((i) => norm(cell(i))).join('|');
+      if (all.has(key)) return;
+      all.set(key, {
+        el, key, from: srcCity, to: dstCity, srcName, dstName,
+        srcText: norm(cell(1)), dstText: norm(cell(3)),
+        rub: maxPrice(cell(8)), when: lines(5)[0] || '', load: (cell(8).match(/\d+\s*грузомест\S*/) || [''])[0],
+        km: (cell(4).match(/\d[\d\s]*км/) || [''])[0]
+      });
     });
   };
   const wait = Math.max(0.5, cfg.pageWaitSec) * 1000;
@@ -86,8 +86,8 @@ async function collectAll(cfg) {
     const next = cfg.nextSelector && document.querySelector(cfg.nextSelector);
     if (next) {
       if (next.disabled || next.getAttribute('aria-disabled') === 'true') break;
-      next.click();                       // классическая пагинация
-    } else {                              // бесконечная прокрутка
+      next.click();
+    } else {
       const rows = document.querySelectorAll(cfg.rowSelector);
       rows[rows.length - 1]?.scrollIntoView({ block: 'end' });
       scrollables([...rows]).forEach((el) => (el.scrollTop = el.scrollHeight));
@@ -99,18 +99,15 @@ async function collectAll(cfg) {
       await sleep(300);
     }
     grab();
-    // при прокрутке останавливаемся, когда строки перестали добавляться;
-    // при пагинации идём до disabled-кнопки или maxPages
     if (!next && document.querySelectorAll(cfg.rowSelector).length <= before && ++stalls >= 2) break;
   }
-  return [...all.values()];
+  return { items: [...all.values()], complete: false };
 }
 
-
-// ---------- Режим API: запрашиваем тот же GraphQL, что и сайт ----------
+// ---------- Режим API: тот же GraphQL-запрос, что делает сам сайт ----------
 const GQL_URL = '/p-api/graphql-decorator/gql?op=CargoesList';
-
 const MONTHS = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+
 // FirstArrivalTimes приходят в UTC — показываем по времени склада отправления
 function fmtDate(iso, offsetSec) {
   const d = new Date(new Date(iso).getTime() + (offsetSec ?? 10800) * 1000);
@@ -123,17 +120,18 @@ function parseTask(t, cfg) {
   const src = fixed ? t.Route?.StartPoint?.Aggregate : t.Src;
   const dst = fixed ? t.Route?.EndPoint?.Aggregate : t.Dst;
   const money = fixed ? t.MaxPrice : t.TotalPrice;
-  const rub = money ? Math.round(Number(money.Amount) / cfg.priceDivisor) : 0;
-  const dates = fixed ? (t.FirstArrivalTimes || []).slice(0, 5).map((x) => fmtDate(x, src?.UTCOffsetSeconds)) : [];
-  const load = fixed ? `${t.PalletsCount ?? ''} паллет` : `${t.CargoesAvailable ?? ''} грузомест`;
+  const dates = fixed ? (t.FirstArrivalTimes || []).slice(0, 3).map((x) => fmtDate(x, src?.UTCOffsetSeconds)) : [];
   const city = (a) => a?.ClusterName || a?.Name || '';
-  const km = t.TransitDistanceMeters ? `${Math.round(t.TransitDistanceMeters / 1000)} км` : '';
+  const place = (a) => norm(`${a?.ClusterName || ''} ${a?.Name || ''} ${a?.Address || ''}`);
   return {
     el: null,
     key: `${t.__typename}:${t.ID}`,
-    summary: `${city(src)} → ${city(dst)} · ${rub.toLocaleString('ru-RU')} ₽ · ${load}${dates[0] ? ' · ' + dates[0] : ''}`,
-    // в текст для правил входят и город (кластер), и название склада, и адрес
-    text: norm(`${city(src)} ${src?.Name || ''} ${src?.Address || ''} ${city(dst)} ${dst?.Name || ''} ${dst?.Address || ''} ${dates.join(' ')} ${km} ${rub} ₽ ${load}`)
+    from: city(src), to: city(dst), srcName: src?.Name || '', dstName: dst?.Name || '',
+    srcText: place(src), dstText: place(dst),
+    rub: money ? Math.round(Number(money.Amount) / cfg.priceDivisor) : 0,
+    when: dates.join(', '),
+    load: fixed ? `${t.PalletsCount ?? ''} паллет` : `${t.CargoesAvailable ?? ''} грузомест`,
+    km: t.TransitDistanceMeters ? `${Math.round(t.TransitDistanceMeters / 1000)} км` : ''
   };
 }
 
@@ -160,7 +158,7 @@ async function collectAllApi(cfg) {
   } catch (e) {}
 
   const all = new Map();
-  let token = '';
+  let token = '', complete = false;
   for (let page = 0; page < cfg.maxPages; page++) {
     const j = await gql({ input: { ...base, Cursor: { Token: token, Limit: 40 } } });
     const data = j.data?.SearchLogisticTasks;
@@ -169,43 +167,38 @@ async function collectAllApi(cfg) {
     tasks.forEach((t) => { const p = parseTask(t, cfg); if (!all.has(p.key)) all.set(p.key, p); });
     const c = data?.Cursor;
     const next = typeof c === 'string' ? c : c?.Token || '';
-    if (!tasks.length || !next || next === token) break;
+    if (!tasks.length || !next || next === token) { complete = true; break; }
     token = next;
     await sleep(400); // не частим
   }
   if (!all.size) throw new Error('API вернул пустой список');
-  return [...all.values()];
+  return { items: [...all.values()], complete };
 }
 
+// ---------- Проверка: сравнить с маршрутами и состоянием, отправить события ----------
 async function scan(cfg, collect = collectAll) {
-  const { seen = [], baselined = false } = await chrome.storage.local.get(['seen', 'baselined']);
-  const seenSet = new Set(seen);
-  const fresh = [];
+  const L = await logic();
+  const { items, complete } = await collect(cfg);
+  const st = await chrome.storage.local.get(['known', 'baselined']);
+  const { events, next, matched } = L.diff(items, st.known || {},
+    { baselined: !!st.baselined, notifyExisting: cfg.notifyExisting, notifyPriceChange: cfg.notifyPriceChange }, cfg.routes);
 
-  (await collect(cfg)).forEach(({ el, text, key, summary }) => {
-    if (!matches(text, cfg)) return;
-    if (!seenSet.has(key)) {
-      seenSet.add(key);
-      fresh.push(summary || text);
-      if (el) highlight(el);
-    }
-  });
-
+  // при полном проходе забываем пропавшие рейсы, при неполном — только ограничиваем размер
+  const known = complete ? Object.fromEntries(items.map((i) => [i.key, next[i.key]])) : L.cap(next, 4000);
   await chrome.storage.local.set({
-    seen: [...seenSet].slice(-3000),
-    baselined: true,
-    lastCheck: Date.now(),
-    lastCount: fresh.length
+    known, baselined: true, lastCheck: Date.now(), lastTotal: items.length, lastMatched: matched, lastEvents: events.length
   });
 
-  // первый проход только запоминает уже существующие рейсы
-  if (baselined && fresh.length) {
-    chrome.runtime.sendMessage({ type: 'notify', items: fresh });
-    beep();
-    document.title = `(${fresh.length}) НОВЫЕ РЕЙСЫ`;
+  if (events.length) {
+    events.forEach((e) => e.item.el && highlight(e.item.el));
+    chrome.runtime.sendMessage({
+      type: 'notify',
+      events: events.map((e) => ({ ...e, item: { ...e.item, el: undefined } }))
+    });
+    if (cfg.sound) beep();
+    document.title = `(${events.length}) РЕЙСЫ — ${document.title.replace(/^\(\d+\) РЕЙСЫ — /, '')}`;
   }
 }
-
 
 // ---------- Диагностика (кнопка в popup) ----------
 function cssPath(el) {

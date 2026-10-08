@@ -1,32 +1,21 @@
 <!doctype html>
 <meta charset="utf-8">
 <style>
-  body{font:13px system-ui;width:340px;padding:12px;margin:0}
-  label{display:block;margin:8px 0 2px;font-weight:600}
-  input[type=text],input[type=number],textarea{width:100%;box-sizing:border-box;padding:5px}
-  textarea{height:70px}
+  body{font:13px system-ui;width:330px;padding:12px;margin:0}
+  .row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  button{padding:6px 10px;margin:3px 4px 3px 0;cursor:pointer}
+  #state{padding:8px;background:#f4f6f8;border-radius:6px;margin:8px 0;line-height:1.5}
+  .err{color:#c62828}.ok{color:#2e7d32}
+  hr{border:0;border-top:1px solid #ddd;margin:10px 0}
   small{color:#666}
-  button{margin-top:10px;padding:6px 12px}
-  #status{margin-top:8px;color:#2e7d32}
 </style>
-<label><input type="checkbox" id="enabled"> Мониторинг включён</label>
-<label>Режим</label><select id="mode"><option value="api">API — прямой запрос списка (без перезагрузки)</option><option value="dom">Таблица — перезагрузка и прокрутка</option></select>
-<label>Период обновления, сек</label><input type="number" id="intervalSec" min="5">
-<label>Ожидание отрисовки списка, сек</label><input type="number" id="loadWaitSec" min="1">
-<label>Правила (по строке; термы через запятую = И, строки = ИЛИ)</label>
-<textarea id="rules" placeholder="москва, тент&#10;казань"></textarea>
-<label>Исключить слова (через запятую)</label><input type="text" id="exclude">
-<label>Мин. цена, ₽</label><input type="number" id="minPrice" min="0">
-<label>CSS-селектор строк рейса</label><input type="text" id="rowSelector">
-<label>Кнопка «след. страница» (селектор, необязательно)</label><input type="text" id="nextSelector">
-<label>Макс. страниц / подгрузок</label><input type="number" id="maxPages" min="1">
-<label>Пауза после прокрутки/перехода, сек</label><input type="number" id="pageWaitSec" min="0.5" step="0.5">
-<small>Если рейсы не находятся — укажите селектор карточки/строки рейса.</small><br>
-<button id="save">Сохранить</button> <button id="reset">Сбросить «виденные»</button>
-<hr><button id="diag">Собрать диагностику (файл для разработчика)</button>
+<div class="row"><label><input type="checkbox" id="enabled"> <b>Мониторинг включён</b></label></div>
+<div id="state">…</div>
+<button id="settings">Настройки (маршруты, Telegram, WhatsApp)</button>
+<button id="reset">Сбросить «виденные»</button>
 <hr>
 <div>Версия <b id="ver"></b> · <span id="updInfo">не проверено</span></div>
 <button id="chk">Проверить обновление</button> <button id="doUpd" disabled>Обновить</button>
-<div><a href="#" id="upd">Настройки обновления (папка, автообновление)</a></div>
+<div><a href="#" id="upd">Настройки обновления</a> · <a href="#" id="diag">Диагностика</a></div>
 <div id="status"></div>
 <script type="module" src="popup.js"></script>

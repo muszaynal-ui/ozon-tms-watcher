@@ -1,35 +1,30 @@
 import { fetchLatestVersion, isNewer, loadHandle, hasWriteAccess, applyUpdate } from './updater.js';
-const DEFAULTS = {
-  enabled: false, intervalSec: 30, loadWaitSec: 4,
-  rowSelector: 'tr[data-testid^="table-row__cargoes_"]', rules: '', exclude: '', minPrice: 0,
-  nextSelector: '', maxPages: 10, pageWaitSec: 2, mode: 'api'
-};
-const ids = Object.keys(DEFAULTS);
+
 const $ = (id) => document.getElementById(id);
-const status = (t) => { $('status').textContent = t; setTimeout(() => ($('status').textContent = ''), 2500); };
+const status = (t) => { $('status').textContent = t; setTimeout(() => ($('status').textContent = ''), 3500); };
+const openUpdate = () => chrome.tabs.create({ url: chrome.runtime.getURL('update.html') });
 
-chrome.storage.sync.get(DEFAULTS).then((cfg) => {
-  ids.forEach((k) => (typeof DEFAULTS[k] === 'boolean' ? ($(k).checked = cfg[k]) : ($(k).value = cfg[k])));
-});
+async function render() {
+  const [{ enabled = false }, st] = await Promise.all([chrome.storage.sync.get('enabled'), chrome.storage.local.get(
+    ['lastCheck', 'lastTotal', 'lastMatched', 'lastEvents', 'modeUsed', 'apiError', 'lastSend'])]);
+  $('enabled').checked = enabled;
+  const t = st.lastCheck ? new Date(st.lastCheck).toLocaleTimeString('ru-RU') : '—';
+  const send = st.lastSend ? (st.lastSend.errors.length ? `<span class="err">ошибка отправки: ${st.lastSend.errors[0]}</span>` : `<span class="ok">отправлено: ${st.lastSend.ok}</span>`) : '—';
+  $('state').innerHTML = `Последняя проверка: <b>${t}</b><br>Рейсов просмотрено: <b>${st.lastTotal ?? '—'}</b>, подходят: <b>${st.lastMatched ?? '—'}</b><br>Режим: <b>${st.modeUsed || '—'}</b>`
+    + (st.apiError ? `<br><span class="err">API: ${st.apiError}</span>` : '') + `<br>Рассылка: ${send}`;
+}
 
-$('save').onclick = async () => {
-  const cfg = {};
-  ids.forEach((k) => {
-    const el = $(k);
-    cfg[k] = typeof DEFAULTS[k] === 'boolean' ? el.checked
-      : typeof DEFAULTS[k] === 'number' ? Number(el.value) : el.value;
-  });
-  await chrome.storage.sync.set(cfg);
-  await chrome.storage.local.set({ baselined: false, seen: [] }); // новые критерии — новая точка отсчёта
-  status('Сохранено. Обновите вкладку tms.ozon.ru.');
+$('enabled').onchange = async () => {
+  await chrome.storage.sync.set({ enabled: $('enabled').checked });
+  await chrome.storage.local.set({ known: {}, baselined: false });
+  status('Обновите вкладку tms.ozon.ru');
 };
+$('settings').onclick = () => chrome.runtime.openOptionsPage();
+$('reset').onclick = async () => { await chrome.storage.local.set({ known: {}, baselined: false }); status('Сброшено'); };
+render();
 
-$('reset').onclick = async () => {
-  await chrome.storage.local.set({ baselined: false, seen: [] });
-  status('Список сброшен');
-};
-
-$('diag').onclick = async () => {
+$('diag').onclick = async (e) => {
+  e.preventDefault();
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !/^https:\/\/tms\.ozon\.ru\//.test(tab.url || '')) return status('Откройте вкладку tms.ozon.ru со списком рейсов');
   status('Собираю (около 10–15 сек)…');
@@ -43,9 +38,6 @@ $('diag').onclick = async () => {
     status('Файл tms-diagnostics.json сохранён в Загрузки');
   });
 };
-
-$('ver').textContent = chrome.runtime.getManifest().version;
-$('upd').onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); };
 
 const current = chrome.runtime.getManifest().version;
 async function checkUpdate() {
@@ -62,11 +54,13 @@ $('chk').onclick = checkUpdate;
 $('doUpd').onclick = async () => {
   try {
     const h = await loadHandle();
-    if (!h) { status('Сначала выберите папку расширения'); return chrome.runtime.openOptionsPage(); }
+    if (!h) { status('Сначала выберите папку расширения'); return openUpdate(); }
     if (!(await hasWriteAccess(h))) await h.requestPermission({ mode: 'readwrite' });
-    if (!(await hasWriteAccess(h))) { status('Нужен доступ к папке'); return chrome.runtime.openOptionsPage(); }
+    if (!(await hasWriteAccess(h))) { status('Нужен доступ к папке'); return openUpdate(); }
     $('updInfo').textContent = 'устанавливаю…';
     await applyUpdate(h);
   } catch (e) { $('updInfo').textContent = 'ошибка: ' + (e.message || e); }
 };
 checkUpdate();
+
+$('ver').textContent = chrome.runtime.getManifest().version;

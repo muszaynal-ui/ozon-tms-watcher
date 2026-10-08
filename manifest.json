@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ozon TMS — мониторинг рейсов",
-  "version": "1.2.4",
+  "version": "1.3.0",
   "description": "Периодически обновляет страницу tms.ozon.ru и уведомляет о новых рейсах по заданным критериям.",
   "permissions": [
     "storage",
@@ -12,7 +12,9 @@
   "host_permissions": [
     "https://tms.ozon.ru/*",
     "https://raw.githubusercontent.com/*",
-    "https://api.github.com/*"
+    "https://api.github.com/*",
+    "https://api.telegram.org/*",
+    "https://wappi.pro/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -43,11 +45,12 @@
       "run_at": "document_idle"
     }
   ],
-  "options_page": "update.html",
+  "options_page": "settings.html",
   "web_accessible_resources": [
     {
       "resources": [
-        "query.js"
+        "query.js",
+        "logic.js"
       ],
       "matches": [
         "https://tms.ozon.ru/*"

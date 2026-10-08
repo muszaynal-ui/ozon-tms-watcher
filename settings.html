@@ -1,0 +1,71 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Настройки — Ozon TMS watcher</title>
+<style>
+  body{font:14px system-ui;max-width:760px;margin:20px auto;padding:0 16px;color:#222}
+  h2{margin:24px 0 8px} h3{margin:0 0 8px}
+  fieldset{border:1px solid #ccc;border-radius:8px;margin:14px 0;padding:12px 14px}
+  legend{font-weight:600;padding:0 6px}
+  label{display:block;margin:8px 0 2px;font-weight:600}
+  label.inline{display:inline;font-weight:400}
+  input[type=text],input[type=number],input[type=password],select{padding:6px;box-sizing:border-box}
+  .wide{width:100%}
+  table{width:100%;border-collapse:collapse}
+  td,th{padding:4px;text-align:left;vertical-align:middle}
+  td input[type=text],td input[type=number]{width:100%}
+  small{color:#666;display:block;margin-top:3px}
+  button{padding:7px 14px;margin:4px 6px 4px 0;cursor:pointer}
+  #save{background:#1565c0;color:#fff;border:0;border-radius:6px}
+  #msg{margin:10px 0;white-space:pre-wrap}.ok{color:#2e7d32}.err{color:#c62828}
+</style>
+<h2>Настройки мониторинга</h2>
+
+<fieldset><legend>Маршруты</legend>
+  <table id="routes">
+    <thead><tr><th></th><th>Откуда</th><th>Куда</th><th>Мин. цена, ₽</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <button id="addRoute">+ Добавить маршрут</button>
+  <small>«Откуда» и «Куда» — город, склад или часть адреса (например <code>москва</code>, <code>никольское</code>). Несколько вариантов — через запятую (<code>москва, дмитров</code>). Пусто — любое направление.
+  Минимальная цена — рейс подходит, если цена не ниже. 0 — без ограничения.</small>
+</fieldset>
+
+<fieldset><legend>Когда уведомлять</legend>
+  <p><input type="checkbox" id="notifyPriceChange"> <label class="inline" for="notifyPriceChange">При изменении цены подходящего рейса</label></p>
+  <p><input type="checkbox" id="notifyExisting"> <label class="inline" for="notifyExisting">Сообщить и о рейсах, которые уже есть при первом запуске</label></p>
+  <p><input type="checkbox" id="sound"> <label class="inline" for="sound">Звук на странице</label></p>
+</fieldset>
+
+<fieldset><legend>Проверка</legend>
+  <label>Режим</label>
+  <select id="mode">
+    <option value="api">API — прямой запрос списка (без перезагрузки страницы)</option>
+    <option value="dom">Таблица — перезагрузка и прокрутка страницы</option>
+  </select>
+  <label>Период проверки, сек <small>В режиме API не чаще раза в 15 секунд.</small></label>
+  <input type="number" id="intervalSec" min="5" style="width:120px">
+  <label>Макс. рейсов за проход (порциями по 40)</label>
+  <input type="number" id="maxPages" min="1" max="50" style="width:120px">
+  <small>Страниц × 40 рейсов. 10 = первые 400 рейсов списка.</small>
+</fieldset>
+
+<fieldset><legend>Telegram</legend>
+  <p><input type="checkbox" id="tgEnabled"> <label class="inline" for="tgEnabled">Отправлять в Telegram</label></p>
+  <label>Токен бота</label><input type="password" id="tgToken" class="wide" autocomplete="off" placeholder="123456:ABC…">
+  <label>Chat ID (несколько — через запятую)</label><input type="text" id="tgChats" class="wide" placeholder="123456789, -1001234567890">
+  <small>Бота создаёт @BotFather. Каждый получатель должен сначала написать боту /start. Свой chat ID можно узнать у @userinfobot.</small>
+</fieldset>
+
+<fieldset><legend>WhatsApp (Wappi)</legend>
+  <p><input type="checkbox" id="waEnabled"> <label class="inline" for="waEnabled">Отправлять в WhatsApp</label></p>
+  <label>Profile ID</label><input type="text" id="waProfile" class="wide" autocomplete="off">
+  <label>Токен (Authorization)</label><input type="password" id="waToken" class="wide" autocomplete="off">
+  <label>Номера получателей (с кодом страны, через запятую)</label><input type="text" id="waTo" class="wide" placeholder="79115576362, 79001234567">
+  <small>Profile ID и токен — в личном кабинете wappi.pro на странице профиля (WhatsApp должен быть авторизован по QR-коду).</small>
+</fieldset>
+
+<button id="save">Сохранить</button>
+<button id="test">Отправить тестовое сообщение</button>
+<div id="msg"></div>
+<small>Токены хранятся только в этом браузере (chrome.storage.local) и не синхронизируются через аккаунт Google.</small>
+<script type="module" src="settings.js"></script>
